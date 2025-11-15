@@ -1,0 +1,2586 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>성우 배차 관리 시스템</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap');
+        body { 
+            font-family: 'Noto Sans KR', sans-serif;
+            touch-action: pan-y pinch-zoom;
+            -webkit-overflow-scrolling: touch;
+        }
+       
+        /* BFX-UI-009: 스크롤 충돌 방지 */
+        .mobile-table-container {
+            touch-action: pan-x pan-y;
+            -webkit-overflow-scrolling: touch;
+        }
+        
+        /* 모달 내부 스크롤 최적화 */
+        .modal-content {
+            touch-action: pan-y;
+            overscroll-behavior: contain;
+        }
+       
+        .modal-backdrop {
+            backdrop-filter: blur(4px);
+            animation: fadeIn 0.2s ease-out;
+        }
+       
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+       
+        @keyframes slideUp {
+            from { transform: translateY(30px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+       
+        .modal-content {
+            animation: slideUp 0.3s ease-out;
+        }
+       
+        .cell-preview {
+            min-height: 100px;
+            transition: all 0.2s;
+            position: relative;
+        }
+       
+        .cell-preview:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+        }
+       
+        .cell-preview.has-content {
+            background: linear-gradient(to bottom, #f0fdf4, #dcfce7);
+            border-color: #86efac;
+        }
+       
+        /* 상태별 색상 */
+        .status-scheduled {
+            background: linear-gradient(to right, #dbeafe, #bfdbfe);
+            color: #1e40af;
+            border-color: #3b82f6;
+        }
+        
+        .status-confirmed {
+            background: linear-gradient(to right, #fed7aa, #fdba74);
+            color: #9a3412;
+            border-color: #f97316;
+        }
+        
+        .status-completed {
+            background: linear-gradient(to right, #d1fae5, #a7f3d0);
+            color: #065f46;
+            border-color: #10b981;
+        }
+       
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            padding: 6px 12px;
+            margin: 4px;
+            background: linear-gradient(to right, #dbeafe, #bfdbfe);
+            color: #1e40af;
+            border-radius: 9999px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            transition: all 0.15s;
+            cursor: pointer;
+        }
+       
+        .chip:hover {
+            background: linear-gradient(to right, #bfdbfe, #93c5fd);
+            transform: scale(1.05);
+        }
+       
+        .chip button {
+            margin-left: 8px;
+            color: #ef4444;
+            font-weight: 900;
+            transition: all 0.15s;
+        }
+       
+        .chip button:hover {
+            color: #dc2626;
+            transform: scale(1.2);
+        }
+       
+        .details-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+        }
+       
+        .details-content.open {
+            max-height: 300px;
+        }
+       
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: #10b981;
+            color: white;
+            padding: 16px 24px;
+            border-radius: 12px;
+            font-weight: bold;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+            animation: slideIn 0.3s ease-out;
+            z-index: 9999;
+        }
+       
+        @keyframes slideIn {
+            from { transform: translateX(400px); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+       
+        .move-btn {
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+       
+        .cell-preview:hover .move-btn {
+            opacity: 1;
+        }
+
+        /* 햄버거 메뉴 */
+        .mobile-drawer {
+            position: fixed;
+            top: 0;
+            right: -100%;
+            width: 280px;
+            height: 100vh;
+            background: white;
+            box-shadow: -4px 0 12px rgba(0,0,0,0.15);
+            transition: right 0.3s ease-out;
+            z-index: 1000;
+            overflow-y: auto;
+        }
+        
+        .mobile-drawer.open {
+            right: 0;
+        }
+        
+        .drawer-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100vh;
+            background: rgba(0,0,0,0.5);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease-out;
+            z-index: 999;
+        }
+        
+        .drawer-overlay.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        /* 헤더 컴팩트 모드 - 개선된 애니메이션 */
+        .header-content {
+            max-height: 1000px;
+            overflow: hidden;
+            transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            opacity: 1;
+        }
+        
+        .header-content.compact {
+            max-height: 0;
+            opacity: 0;
+        }
+
+        /* Focus View 스타일 */
+        .focus-view {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            animation: fadeIn 0.3s ease-out;
+        }
+        
+        .focus-view-content {
+            background: white;
+            border-radius: 16px;
+            max-width: 500px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            animation: slideUp 0.3s ease-out;
+        }
+
+        /* 범위 입력 스타일 */
+        .range-input {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .range-input input {
+            width: 60px;
+            text-align: center;
+        }
+
+        /* 모바일 최적화 (BFX-UI-005: 저장 버튼 겹침 방지) */
+        @media (max-width: 768px) {
+            .mobile-table-container {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+            .mobile-table th,
+            .mobile-table td {
+                min-width: 100px;
+                font-size: 0.8rem;
+                padding: 0.5rem;
+            }
+            .mobile-table .cell-preview {
+                min-height: 80px;
+                padding: 0.5rem;
+            }
+            .toast {
+                bottom: 12px;
+                right: 12px;
+                padding: 12px 16px;
+                font-size: 0.875rem;
+            }
+            
+            /* 저장 버튼 위치 조정 - 브라우저 UI 겹침 방지 */
+            .modal-content {
+                margin-bottom: 20px;
+            }
+            
+            /* 피벗 모달 저장 버튼 여백 추가 */
+            #pivotModal .modal-content > div:last-child {
+                padding-bottom: 80px;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-gray-50 to-gray-100 min-h-screen">
+    <!-- 드로어 오버레이 -->
+    <div id="drawerOverlay" class="drawer-overlay" onclick="closeDrawer()"></div>
+    
+    <!-- 모바일 드로어 메뉴 -->
+    <div id="mobileDrawer" class="mobile-drawer">
+        <div class="p-6">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-xl font-black text-gray-800">메뉴</h2>
+                <button onclick="closeDrawer()" class="text-2xl text-gray-600 hover:text-gray-800">×</button>
+            </div>
+            
+            <div class="space-y-3">
+                <button onclick="showSearchModal(); closeDrawer();" class="w-full p-3 bg-purple-100 hover:bg-purple-200 text-purple-700 rounded-xl font-bold transition text-sm flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
+                    검색
+                </button>
+               
+                <button onclick="showExportModal(); closeDrawer();" class="w-full p-3 bg-green-100 hover:bg-green-200 text-green-700 rounded-xl font-bold transition text-sm flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                    내보내기
+                </button>
+               
+                <button onclick="showVehicleModal(); closeDrawer();" class="w-full p-3 bg-orange-100 hover:bg-orange-200 text-orange-700 rounded-xl font-bold transition text-sm flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                    차량설정
+                </button>
+                
+                <button onclick="showAccessLog(); closeDrawer();" class="w-full p-3 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded-xl font-bold transition text-sm flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path>
+                    </svg>
+                    접속 로그
+                </button>
+                
+                <button onclick="showBugReport(); closeDrawer();" class="w-full p-3 bg-red-100 hover:bg-red-200 text-red-700 rounded-xl font-bold transition text-sm flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    버그 리포트
+                </button>
+               
+                <button onclick="showWriterModal(); closeDrawer();" class="w-full p-3 bg-blue-100 hover:bg-blue-200 rounded-xl transition text-sm flex items-center gap-2">
+                    <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                    </svg>
+                    <span class="font-bold text-blue-700" id="writerNameMobile">미인증</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="max-w-7xl mx-auto p-3 md:p-6">
+        <!-- 헤더 -->
+        <header id="mainHeader" class="bg-white shadow-2xl rounded-2xl p-3 md:p-5 mb-5 sticky top-3 z-50">
+            <!-- 최상단 바 (항상 표시) -->
+            <div class="flex justify-between items-center">
+                <div class="flex items-center gap-2 md:gap-3">
+                    <button onclick="toggleHeader()" class="p-2 hover:bg-gray-100 rounded-lg md:hidden">
+                        <svg id="headerToggleIcon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                    </button>
+                    <div class="bg-gradient-to-br from-blue-500 to-indigo-600 p-2 md:p-3 rounded-xl">
+                        <svg class="w-6 h-6 md:w-8 md:h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <h1 class="text-lg md:text-3xl font-black text-gray-800">성우 배차</h1>
+                        <p class="text-xs text-gray-500 hidden md:block">실시간 배차 현황</p>
+                    </div>
+                </div>
+               
+                <div class="flex items-center gap-2">
+                    <!-- 데스크톱 메뉴 -->
+                    <div class="hidden lg:flex items-center gap-2">
+                        <button onclick="showSearchModal()" class="px-4 py-2 bg-purple-100 hover:bg-purple-200 text-purple-700 rounded-xl font-bold transition text-sm flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                            </svg>
+                            검색
+                        </button>
+                       
+                        <button onclick="showExportModal()" class="px-4 py-2 bg-green-100 hover:bg-green-200 text-green-700 rounded-xl font-bold transition text-sm flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                            </svg>
+                            내보내기
+                        </button>
+                       
+                        <button onclick="showVehicleModal()" class="px-4 py-2 bg-orange-100 hover:bg-orange-200 text-orange-700 rounded-xl font-bold transition text-sm flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                            </svg>
+                            차량
+                        </button>
+                        
+                        <button onclick="showAccessLog()" class="px-4 py-2 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded-xl font-bold transition text-sm flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path>
+                            </svg>
+                            로그
+                        </button>
+                        
+                        <button onclick="showBugReport()" class="px-4 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-xl font-bold transition text-sm flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            리포트
+                        </button>
+                       
+                        <button onclick="showWriterModal()" class="px-4 py-2 bg-blue-100 hover:bg-blue-200 rounded-xl transition text-sm flex items-center gap-2">
+                            <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                            </svg>
+                            <span class="font-bold text-blue-700" id="writerName">미인증</span>
+                        </button>
+                    </div>
+                    
+                    <!-- 모바일 햄버거 메뉴 -->
+                    <button onclick="openDrawer()" class="lg:hidden p-2 hover:bg-gray-100 rounded-lg">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+           
+            <!-- 확장 가능한 컨텐츠 -->
+            <div id="headerContent" class="header-content">
+                <!-- 주차 네비게이션 -->
+                <div class="mt-4 flex flex-wrap items-center justify-center gap-2 md:gap-3">
+                    <button onclick="navigateWeek(-1)" class="px-3 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl font-bold transition flex items-center gap-1 text-sm">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"></path>
+                        </svg>
+                        <span class="hidden md:inline">이전 주</span>
+                    </button>
+                   
+                    <div class="text-center px-3 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border-2 border-blue-200">
+                        <div class="text-sm md:text-lg font-black text-gray-800" id="weekDisplay"></div>
+                        <div class="text-xs text-gray-600 font-semibold" id="weekRange"></div>
+                    </div>
+                   
+                    <button onclick="navigateWeek(1)" class="px-3 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl font-bold transition flex items-center gap-1 text-sm">
+                        <span class="hidden md:inline">다음 주</span>
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"></path>
+                        </svg>
+                    </button>
+                   
+                    <button onclick="goToToday()" class="px-3 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white rounded-xl font-bold transition shadow-lg text-sm">
+                        오늘
+                    </button>
+                   
+                    <input type="week" id="weekPicker" onchange="changeWeek(this.value)"
+                           class="px-2 py-2 border-2 border-gray-300 rounded-xl text-xs md:text-sm font-semibold focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition">
+                </div>
+            </div>
+        </header>
+
+        <!-- 페이지 전환 버튼 -->
+        <div class="flex gap-3 mb-5">
+            <button onclick="showPage('view')" id="btnView" class="flex-1 py-3 md:py-4 rounded-xl font-black text-base md:text-lg transition shadow-lg bg-gradient-to-r from-blue-500 to-indigo-600 text-white">
+                배차 현황
+            </button>
+            <button onclick="showPage('input')" id="btnInput" class="flex-1 py-3 md:py-4 rounded-xl font-black text-base md:text-lg transition bg-gray-200 text-gray-700">
+                배차 입력
+            </button>
+        </div>
+
+        <!-- 배차 현황 페이지 -->
+        <section id="viewPage" class="bg-white rounded-2xl shadow-2xl overflow-hidden mobile-table-container">
+            <div class="overflow-x-auto">
+                <table class="w-full border-collapse mobile-table">
+                    <thead class="bg-gradient-to-r from-blue-500 to-indigo-600 text-white sticky top-0">
+                        <tr>
+                            <th colspan="7" class="py-3 md:py-4 text-center font-black text-lg md:text-xl">
+                                주간 배차 현황
+                            </th>
+                        </tr>
+                        <tr class="bg-gradient-to-r from-blue-400 to-indigo-500">
+                            <th id="vday0" class="p-2 md:p-3 border-r border-blue-300 min-w-[100px] text-xs md:text-sm"></th>
+                            <th id="vday1" class="p-2 md:p-3 border-r border-blue-300 min-w-[100px] text-xs md:text-sm"></th>
+                            <th id="vday2" class="p-2 md:p-3 border-r border-blue-300 min-w-[100px] text-xs md:text-sm"></th>
+                            <th id="vday3" class="p-2 md:p-3 border-r border-blue-300 min-w-[100px] text-xs md:text-sm"></th>
+                            <th id="vday4" class="p-2 md:p-3 border-r border-blue-300 min-w-[100px] text-xs md:text-sm"></th>
+                            <th id="vday5" class="p-2 md:p-3 border-r border-blue-300 min-w-[100px] text-xs md:text-sm"></th>
+                            <th id="vday6" class="p-2 md:p-3 min-w-[100px] text-xs md:text-sm"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="viewTableBody"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- 배차 입력 페이지 -->
+        <section id="inputPage" class="hidden">
+            <div class="bg-white rounded-2xl shadow-2xl overflow-hidden mb-5">
+                <!-- 날짜 지정 입력 -->
+                <div class="bg-gradient-to-r from-green-500 to-emerald-600 p-4 md:p-5">
+                    <h3 class="text-white font-black text-base md:text-lg mb-3 flex items-center gap-2">
+                        <svg class="w-5 h-5 md:w-6 md:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                        </svg>
+                        특정 날짜에 배차 정보 입력
+                    </h3>
+                    <div class="flex flex-wrap gap-3">
+                        <input type="date" id="specificDate" class="flex-1 min-w-[180px] px-3 py-2 md:px-4 md:py-3 rounded-xl border-2 border-white font-semibold focus:ring-4 focus:ring-green-200 text-sm md:text-base">
+                        <button onclick="openPivotModalForDate()" class="px-4 py-2 md:px-6 md:py-3 bg-white text-green-600 hover:bg-green-50 rounded-xl font-bold transition shadow-md text-sm md:text-base">
+                            이 날짜에 입력하기
+                        </button>
+                    </div>
+                </div>
+               
+                <div class="overflow-x-auto mobile-table-container">
+                    <table class="w-full border-collapse mobile-table">
+                        <thead class="bg-gradient-to-r from-green-500 to-emerald-600 text-white sticky top-0">
+                            <tr>
+                                <th colspan="7" class="py-3 md:py-4 text-center font-black text-lg md:text-xl">
+                                    주간 배차 입력
+                                </th>
+                            </tr>
+                            <tr class="bg-gradient-to-r from-green-400 to-emerald-500">
+                                <th id="day0" class="p-2 md:p-3 border-r border-green-300 min-w-[100px] text-xs md:text-sm"></th>
+                                <th id="day1" class="p-2 md:p-3 border-r border-green-300 min-w-[100px] text-xs md:text-sm"></th>
+                                <th id="day2" class="p-2 md:p-3 border-r border-green-300 min-w-[100px] text-xs md:text-sm"></th>
+                                <th id="day3" class="p-2 md:p-3 border-r border-green-300 min-w-[100px] text-xs md:text-sm"></th>
+                                <th id="day4" class="p-2 md:p-3 border-r border-green-300 min-w-[100px] text-xs md:text-sm"></th>
+                                <th id="day5" class="p-2 md:p-3 border-r border-green-300 min-w-[100px] text-xs md:text-sm"></th>
+                                <th id="day6" class="p-2 md:p-3 min-w-[100px] text-xs md:text-sm"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="inputTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- 피벗 입력 모달 -->
+        <div id="pivotModal" class="fixed inset-0 bg-black bg-opacity-60 modal-backdrop hidden items-center justify-center z-50 p-3">
+            <div class="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[95vh] overflow-y-auto modal-content">
+                <div class="sticky top-0 bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-4 md:p-6 rounded-t-3xl z-10">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-xl md:text-2xl font-black flex items-center gap-2 md:gap-3">
+                            <svg class="w-6 h-6 md:w-8 md:h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                            </svg>
+                            배차 정보 입력
+                        </h3>
+                        <button onclick="closePivotModal()" class="text-2xl md:text-3xl hover:text-gray-200 transition hover:rotate-90 duration-300">×</button>
+                    </div>
+                </div>
+               
+                <div class="p-4 md:p-6 grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+                    <!-- 왼쪽: 입력 필드 -->
+                    <div class="space-y-4 md:space-y-5">
+                        <!-- 날짜 변경 -->
+                        <div class="bg-yellow-50 p-3 md:p-4 rounded-2xl border-2 border-yellow-200">
+                            <label class="block font-black text-gray-800 mb-2 text-sm md:text-base">날짜 변경</label>
+                            <input type="date" id="pivotDate" class="w-full p-2 md:p-3 border-2 border-yellow-300 rounded-xl focus:border-yellow-500 focus:ring-4 focus:ring-yellow-200 transition font-semibold text-sm md:text-base">
+                        </div>
+
+                        <!-- 배차 상태 -->
+                        <div class="bg-purple-50 p-3 md:p-4 rounded-2xl border-2 border-purple-200">
+                            <label class="block font-black text-gray-800 mb-2 text-sm md:text-base">배차 상태</label>
+                            <select id="pivotStatus" onchange="updatePivotPreview()" class="w-full p-2 md:p-3 border-2 border-purple-300 rounded-xl focus:border-purple-500 focus:ring-4 focus:ring-purple-200 transition font-semibold text-sm md:text-base">
+                                <option value="SCHEDULED">예정</option>
+                                <option value="CONFIRMED">확정</option>
+                                <option value="COMPLETED">완료</option>
+                            </select>
+                        </div>
+
+                        <!-- 업체명 -->
+                        <div class="bg-blue-50 p-3 md:p-4 rounded-2xl border-2 border-blue-200">
+                            <label class="block font-black text-gray-800 mb-2 text-sm md:text-base">
+                                업체명 <span class="text-red-500">*필수</span>
+                            </label>
+                            <input type="text" id="pivotCompany" placeholder="예: 정도철강"
+                                   class="w-full p-2 md:p-3 border-2 border-blue-300 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-200 transition font-semibold text-sm md:text-base"
+                                   oninput="updatePivotPreview()">
+                            <button onclick="saveCompanyToList()" class="text-xs md:text-sm text-blue-600 hover:text-blue-800 mt-2 font-bold">
+                                + 목록에 저장 (최대 10개)
+                            </button>
+                            <div id="companiesChips" class="mt-3"></div>
+                        </div>
+                       
+                        <!-- 상차지 -->
+                        <div class="bg-green-50 p-3 md:p-4 rounded-2xl border-2 border-green-200">
+                            <label class="block font-black text-gray-800 mb-2 text-sm md:text-base">상차지</label>
+                            <input type="text" id="pivotLoading" placeholder="예: 남양주"
+                                   class="w-full p-2 md:p-3 border-2 border-green-300 rounded-xl focus:border-green-500 focus:ring-4 focus:ring-green-200 transition font-semibold text-sm md:text-base"
+                                   oninput="updatePivotPreview()">
+                            <button onclick="saveLoadingToList()" class="text-xs md:text-sm text-green-600 hover:text-green-800 mt-2 font-bold">
+                                + 목록에 저장 (최대 10개)
+                            </button>
+                            <div id="loadingsChips" class="mt-3"></div>
+                        </div>
+                       
+                        <!-- 연락처 -->
+                        <div class="bg-pink-50 p-3 md:p-4 rounded-2xl border-2 border-pink-200">
+                            <label class="block font-black text-gray-800 mb-2 text-sm md:text-base">연락처</label>
+                            <input type="tel" id="pivotContact" placeholder="010-1234-5678"
+                                   class="w-full p-2 md:p-3 border-2 border-pink-300 rounded-xl focus:border-pink-500 focus:ring-4 focus:ring-pink-200 transition font-semibold text-sm md:text-base">
+                        </div>
+                       
+                        <!-- 특이사항 -->
+                        <div class="bg-amber-50 p-3 md:p-4 rounded-2xl border-2 border-amber-200">
+                            <label class="block font-black text-gray-800 mb-2 text-sm md:text-base">특이사항</label>
+                            <textarea id="pivotNotes" placeholder="급배송, 주의사항 등"
+                                      rows="3"
+                                      class="w-full p-2 md:p-3 border-2 border-amber-300 rounded-xl focus:border-amber-500 focus:ring-4 focus:ring-amber-200 transition resize-none font-semibold text-sm md:text-base"></textarea>
+                        </div>
+                    </div>
+                   
+                    <!-- 오른쪽: 시간/차량 선택 및 미리보기 -->
+                    <div class="space-y-4 md:space-y-5">
+                        <!-- 시간 입력 -->
+                        <div class="bg-purple-50 p-3 md:p-4 rounded-2xl border-2 border-purple-200">
+                            <label class="block font-black text-gray-800 mb-3 text-sm md:text-base">시간 (수기 입력)</label>
+                            <input type="text" id="pivotTimeInput" placeholder="예: 오후 2시, 14:00, 새벽 5시" 
+                                   class="w-full p-2 md:p-3 border-2 border-purple-300 rounded-xl focus:border-purple-500 focus:ring-4 focus:ring-purple-200 transition font-semibold text-sm md:text-base"
+                                   oninput="updatePivotPreview()">
+                        </div>
+                       
+                        <!-- 차량 선택 - 범위 지원 -->
+                        <div class="bg-orange-50 p-3 md:p-4 rounded-2xl border-2 border-orange-200">
+                            <label class="block font-black text-gray-800 mb-2 text-xs md:text-sm">방통차 배차</label>
+                            <div class="flex gap-2 mb-2">
+                                <button onclick="setBangMode('single')" id="bangModeSingle" class="flex-1 py-2 px-3 bg-white border-2 border-orange-300 rounded-lg text-xs font-bold">단일</button>
+                                <button onclick="setBangMode('range')" id="bangModeRange" class="flex-1 py-2 px-3 bg-orange-200 border-2 border-orange-300 rounded-lg text-xs font-bold">범위</button>
+                            </div>
+                            <div id="bangSingleInput">
+                                <select id="bangSelect" onchange="selectPivot('bang', this.value)" class="w-full p-2 border-2 border-orange-300 rounded-xl focus:border-orange-500 focus:ring-2 focus:ring-orange-200 transition font-semibold text-xs md:text-sm">
+                                    <option value="">선택안함</option>
+                                </select>
+                            </div>
+                            <div id="bangRangeInput" class="hidden">
+                                <div class="range-input">
+                                    <input type="number" id="bangMin" min="1" max="20" placeholder="최소" class="p-2 border-2 border-orange-300 rounded-lg text-xs" oninput="updateBangRange()">
+                                    <span class="text-lg font-bold">~</span>
+                                    <input type="number" id="bangMax" min="1" max="20" placeholder="최대" class="p-2 border-2 border-orange-300 rounded-lg text-xs" oninput="updateBangRange()">
+                                    <span class="text-xs font-semibold">대</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="bg-cyan-50 p-3 md:p-4 rounded-2xl border-2 border-cyan-200">
+                            <label class="block font-black text-gray-800 mb-2 text-xs md:text-sm">집게차 배차</label>
+                            <div class="flex gap-2 mb-2">
+                                <button onclick="setJipMode('single')" id="jipModeSingle" class="flex-1 py-2 px-3 bg-white border-2 border-cyan-300 rounded-lg text-xs font-bold">단일</button>
+                                <button onclick="setJipMode('range')" id="jipModeRange" class="flex-1 py-2 px-3 bg-cyan-200 border-2 border-cyan-300 rounded-lg text-xs font-bold">범위</button>
+                            </div>
+                            <div id="jipSingleInput">
+                                <select id="jipSelect" onchange="selectPivot('jip', this.value)" class="w-full p-2 border-2 border-cyan-300 rounded-xl focus:border-cyan-500 focus:ring-2 focus:ring-cyan-200 transition font-semibold text-xs md:text-sm">
+                                    <option value="">선택안함</option>
+                                </select>
+                            </div>
+                            <div id="jipRangeInput" class="hidden">
+                                <div class="range-input">
+                                    <input type="number" id="jipMin" min="1" max="10" placeholder="최소" class="p-2 border-2 border-cyan-300 rounded-lg text-xs" oninput="updateJipRange()">
+                                    <span class="text-lg font-bold">~</span>
+                                    <input type="number" id="jipMax" min="1" max="10" placeholder="최대" class="p-2 border-2 border-cyan-300 rounded-lg text-xs" oninput="updateJipRange()">
+                                    <span class="text-xs font-semibold">대</span>
+                                </div>
+                            </div>
+                        </div>
+                       
+                        <!-- 미리보기 -->
+                        <div class="bg-gradient-to-br from-gray-50 to-gray-100 p-4 md:p-5 rounded-2xl border-2 border-gray-300">
+                            <p class="font-black text-gray-800 mb-3 text-base md:text-lg">미리보기</p>
+                            <div id="previewContent" class="text-xs md:text-sm space-y-2"></div>
+                        </div>
+                       
+                        <!-- 저장 버튼 -->
+                        <button onclick="applyAndSave()"
+                                class="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-black py-3 md:py-4 rounded-2xl shadow-2xl transition transform hover:scale-[1.02] text-base md:text-lg">
+                            저장하기
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Focus View 모달 -->
+        <div id="focusView" class="focus-view hidden">
+            <div class="focus-view-content">
+                <div id="focusViewHeader" class="p-4 rounded-t-2xl"></div>
+                <div id="focusViewBody" class="p-6"></div>
+                <div class="p-4 border-t">
+                    <button onclick="closeFocusView()" class="w-full py-3 bg-gray-200 hover:bg-gray-300 rounded-xl font-bold transition">
+                        닫기
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 기타 모달들 (작성자, 검색, 내보내기, 차량설정) -->
+        <div id="writerModal" class="fixed inset-0 bg-black bg-opacity-60 modal-backdrop hidden items-center justify-center z-50 p-3">
+            <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md modal-content">
+                <div class="bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-4 md:p-6 rounded-t-3xl">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-xl md:text-2xl font-black">작성자 인증</h3>
+                        <button onclick="closeWriterModal()" class="text-2xl md:text-3xl hover:text-gray-200 transition">×</button>
+                    </div>
+                </div>
+               
+                <div class="p-4 md:p-6 space-y-4">
+                    <div>
+                        <label class="block text-sm font-black text-gray-700 mb-2">이름</label>
+                        <input type="text" id="writerNameInput" placeholder="홍길동"
+                               class="w-full p-3 md:p-4 border-2 border-gray-300 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-200 transition font-semibold text-sm md:text-base">
+                    </div>
+                   
+                    <div>
+                        <label class="block text-sm font-black text-gray-700 mb-2">비밀번호 (4자리 숫자)</label>
+                        <input type="password" id="writerPassInput" placeholder="1234" maxlength="4"
+                               class="w-full p-3 md:p-4 border-2 border-gray-300 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-200 transition font-semibold text-sm md:text-base"
+                               onkeypress="if(event.key==='Enter') saveWriter()">
+                    </div>
+                   
+                    <button onclick="saveWriter()" class="w-full bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white font-black py-3 rounded-xl transition shadow-lg">
+                        인증하기
+                    </button>
+                   
+                    <button onclick="logout()" class="w-full bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold py-3 rounded-xl transition">
+                        로그아웃
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 검색 모달 -->
+        <div id="searchModal" class="fixed inset-0 bg-black bg-opacity-60 modal-backdrop hidden items-center justify-center z-50 p-3">
+            <div class="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto modal-content">
+                <div class="sticky top-0 bg-gradient-to-r from-purple-600 to-pink-600 text-white p-4 md:p-6 rounded-t-3xl z-10">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-xl md:text-2xl font-black">배차 검색</h3>
+                        <button onclick="closeSearchModal()" class="text-2xl md:text-3xl hover:text-gray-200 transition">×</button>
+                    </div>
+                </div>
+               
+                <div class="p-4 md:p-6 space-y-4">
+                    <div>
+                        <label class="block font-black text-gray-800 mb-2 text-sm md:text-base">검색어</label>
+                        <input type="text" id="searchInput" placeholder="업체명, 상차지, 작성자 등..."
+                               class="w-full p-3 md:p-4 border-2 border-purple-300 rounded-xl focus:border-purple-500 focus:ring-4 focus:ring-purple-200 transition font-semibold text-sm md:text-base"
+                               oninput="performSearch()">
+                    </div>
+                   
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-2">시작일</label>
+                            <input type="date" id="searchStartDate"
+                                   class="w-full p-2 md:p-3 border-2 border-gray-300 rounded-xl focus:border-purple-500 focus:ring-2 focus:ring-purple-200 transition font-semibold text-sm"
+                                   onchange="performSearch()">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-2">종료일</label>
+                            <input type="date" id="searchEndDate"
+                                   class="w-full p-2 md:p-3 border-2 border-gray-300 rounded-xl focus:border-purple-500 focus:ring-2 focus:ring-purple-200 transition font-semibold text-sm"
+                                   onchange="performSearch()">
+                        </div>
+                    </div>
+                   
+                    <div id="searchResults" class="space-y-2 max-h-96 overflow-y-auto"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 내보내기 모달 -->
+        <div id="exportModal" class="fixed inset-0 bg-black bg-opacity-60 modal-backdrop hidden items-center justify-center z-50 p-3">
+            <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md modal-content">
+                <div class="bg-gradient-to-r from-green-600 to-emerald-600 text-white p-4 md:p-6 rounded-t-3xl">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-xl md:text-2xl font-black">데이터 내보내기</h3>
+                        <button onclick="closeExportModal()" class="text-2xl md:text-3xl hover:text-gray-200 transition">×</button>
+                    </div>
+                </div>
+               
+                <div class="p-4 md:p-6 space-y-4">
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-2">시작일</label>
+                            <input type="date" id="exportStartDate"
+                                   class="w-full p-2 md:p-3 border-2 border-gray-300 rounded-xl focus:border-green-500 focus:ring-2 focus:ring-green-200 transition font-semibold text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-2">종료일</label>
+                            <input type="date" id="exportEndDate"
+                                   class="w-full p-2 md:p-3 border-2 border-gray-300 rounded-xl focus:border-green-500 focus:ring-2 focus:ring-green-200 transition font-semibold text-sm">
+                        </div>
+                    </div>
+                   
+                    <button onclick="exportToCSV()" class="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-black py-3 rounded-xl transition shadow-lg text-sm md:text-base">
+                        CSV 파일로 내보내기
+                    </button>
+                   
+                    <button onclick="exportToExcel()" class="w-full bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white font-black py-3 rounded-xl transition shadow-lg text-sm md:text-base">
+                        Excel 파일로 내보내기
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 차량 설정 모달 -->
+        <div id="vehicleModal" class="fixed inset-0 bg-black bg-opacity-60 modal-backdrop hidden items-center justify-center z-50 p-3">
+            <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md modal-content">
+                <div class="bg-gradient-to-r from-orange-600 to-red-600 text-white p-4 md:p-6 rounded-t-3xl">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-xl md:text-2xl font-black">차량 대수 설정</h3>
+                        <button onclick="closeVehicleModal()" class="text-2xl md:text-3xl hover:text-gray-200 transition">×</button>
+                    </div>
+                </div>
+               
+                <div class="p-4 md:p-6 space-y-4">
+                    <div>
+                        <label class="block text-sm font-black text-gray-700 mb-2">방통차 대수 (1-20)</label>
+                        <input type="number" id="bangCountInput" min="1" max="20" value="5"
+                               class="w-full p-3 md:p-4 border-2 border-gray-300 rounded-xl focus:border-orange-500 focus:ring-4 focus:ring-orange-200 transition font-semibold text-base md:text-lg">
+                    </div>
+                   
+                    <div>
+                        <label class="block text-sm font-black text-gray-700 mb-2">집게차 대수 (1-10)</label>
+                        <input type="number" id="jipCountInput" min="1" max="10" value="3"
+                               class="w-full p-3 md:p-4 border-2 border-gray-300 rounded-xl focus:border-cyan-500 focus:ring-4 focus:ring-cyan-200 transition font-semibold text-base md:text-lg">
+                    </div>
+                   
+                    <button onclick="saveVehicleCount()" class="w-full bg-gradient-to-r from-orange-500 to-red-600 hover:from-orange-600 hover:to-red-700 text-white font-black py-3 rounded-xl transition shadow-lg">
+                        저장하기
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Toast 알림 -->
+        <div id="toast" class="hidden"></div>
+    </div>
+
+    <script>
+        // ========== 전역 변수 ==========
+        const DB_NAME = 'dispatchDB';
+        const STORE_NAME = 'weekly_reports';
+        const LOG_STORE = 'access_logs'; // 접속 로그
+        const ERROR_STORE = 'error_logs'; // 에러 로그
+        const DAYS = ['일', '월', '화', '수', '목', '금', '토'];
+        const DEFAULT_ROWS = 8; // 5개에서 8개로 확장
+        const MAX_COMPANIES = 10;
+        const MAX_LOADINGS = 10;
+        const MAX_LOGS = 50; // 로그 최대 개수
+       
+        let db = null;
+        let currentWeekStart = '';
+        let writer = { name: '미인증', pin: '' };
+        let currentRow = 0, currentCol = 0;
+       
+        let COMPANIES = JSON.parse(localStorage.getItem('companyList') || '[]');
+        let LOADINGS = JSON.parse(localStorage.getItem('loadingList') || '[]');
+       
+        let pivotSelection = {
+            company: '', loading: '', time: '', bang: '', jip: '', 
+            contact: '', notes: '', date: '', status: 'SCHEDULED'
+        };
+        
+        let bangMode = 'single'; // 'single' or 'range'
+        let jipMode = 'single';
+        let lastScrollY = 0;
+        let scrollTicking = false;
+
+        // ========== 상태 매핑 ==========
+        const STATUS_MAP = {
+            SCHEDULED: { name: '예정', class: 'status-scheduled', color: 'bg-blue-100 text-blue-700' },
+            CONFIRMED: { name: '확정', class: 'status-confirmed', color: 'bg-orange-100 text-orange-700' },
+            COMPLETED: { name: '완료', class: 'status-completed', color: 'bg-green-100 text-green-700' }
+        };
+
+        // ========== 차량 범위 모드 전환 ==========
+        function setBangMode(mode) {
+            bangMode = mode;
+            document.getElementById('bangModeSingle').className = mode === 'single' 
+                ? 'flex-1 py-2 px-3 bg-orange-200 border-2 border-orange-400 rounded-lg text-xs font-bold'
+                : 'flex-1 py-2 px-3 bg-white border-2 border-orange-300 rounded-lg text-xs font-bold';
+            document.getElementById('bangModeRange').className = mode === 'range'
+                ? 'flex-1 py-2 px-3 bg-orange-200 border-2 border-orange-400 rounded-lg text-xs font-bold'
+                : 'flex-1 py-2 px-3 bg-white border-2 border-orange-300 rounded-lg text-xs font-bold';
+            
+            document.getElementById('bangSingleInput').classList.toggle('hidden', mode === 'range');
+            document.getElementById('bangRangeInput').classList.toggle('hidden', mode === 'single');
+            
+            if (mode === 'range') {
+                document.getElementById('bangSelect').value = '';
+                pivotSelection.bang = '';
+            } else {
+                document.getElementById('bangMin').value = '';
+                document.getElementById('bangMax').value = '';
+            }
+            updatePivotPreview();
+        }
+
+        function setJipMode(mode) {
+            jipMode = mode;
+            document.getElementById('jipModeSingle').className = mode === 'single'
+                ? 'flex-1 py-2 px-3 bg-cyan-200 border-2 border-cyan-400 rounded-lg text-xs font-bold'
+                : 'flex-1 py-2 px-3 bg-white border-2 border-cyan-300 rounded-lg text-xs font-bold';
+            document.getElementById('jipModeRange').className = mode === 'range'
+                ? 'flex-1 py-2 px-3 bg-cyan-200 border-2 border-cyan-400 rounded-lg text-xs font-bold'
+                : 'flex-1 py-2 px-3 bg-white border-2 border-cyan-300 rounded-lg text-xs font-bold';
+            
+            document.getElementById('jipSingleInput').classList.toggle('hidden', mode === 'range');
+            document.getElementById('jipRangeInput').classList.toggle('hidden', mode === 'single');
+            
+            if (mode === 'range') {
+                document.getElementById('jipSelect').value = '';
+                pivotSelection.jip = '';
+            } else {
+                document.getElementById('jipMin').value = '';
+                document.getElementById('jipMax').value = '';
+            }
+            updatePivotPreview();
+        }
+
+        function updateBangRange() {
+            const min = document.getElementById('bangMin').value;
+            const max = document.getElementById('bangMax').value;
+            if (min && max) {
+                pivotSelection.bang = `방 ${min}~${max}대`;
+            } else if (min) {
+                pivotSelection.bang = `방 ${min}대`;
+            } else {
+                pivotSelection.bang = '';
+            }
+            updatePivotPreview();
+        }
+
+        function updateJipRange() {
+            const min = document.getElementById('jipMin').value;
+            const max = document.getElementById('jipMax').value;
+            if (min && max) {
+                pivotSelection.jip = `집 ${min}~${max}대`;
+            } else if (min) {
+                pivotSelection.jip = `집 ${min}대`;
+            } else {
+                pivotSelection.jip = '';
+            }
+            updatePivotPreview();
+        }
+
+        // ========== 신규 메뉴 함수 ==========
+        function showAccessLog() {
+            if (writer.name === '미인증') {
+                showToast('❌ 인증된 사용자만 접근 가능합니다');
+                showWriterModal();
+                return;
+            }
+            
+            getAccessLogs().then(logs => {
+                const modal = document.createElement('div');
+                modal.className = 'fixed inset-0 bg-black bg-opacity-60 modal-backdrop flex items-center justify-center z-50 p-3';
+                modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+                
+                modal.innerHTML = `
+                    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto modal-content">
+                        <div class="sticky top-0 bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-4 md:p-6 rounded-t-3xl z-10">
+                            <div class="flex justify-between items-center">
+                                <h3 class="text-xl md:text-2xl font-black">📊 접속 로그 (최근 ${logs.length}건)</h3>
+                                <button onclick="this.closest('.modal-backdrop').remove()" class="text-2xl md:text-3xl hover:text-gray-200 transition">×</button>
+                            </div>
+                        </div>
+                        <div class="p-4 md:p-6">
+                            ${logs.length === 0 ? '<div class="text-center text-gray-400 py-8">접속 기록이 없습니다</div>' : `
+                                <div class="space-y-3">
+                                    ${logs.map(log => `
+                                        <div class="p-4 bg-gray-50 rounded-xl border border-gray-200">
+                                            <div class="flex justify-between items-start mb-2">
+                                                <span class="font-bold text-gray-900">${log.user}</span>
+                                                <span class="px-2 py-1 rounded-full text-xs font-bold ${log.userType === '인증' ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-700'}">${log.userType}</span>
+                                            </div>
+                                            <div class="text-sm text-gray-600 space-y-1">
+                                                <div>🕐 ${new Date(log.timestamp).toLocaleString('ko-KR')}</div>
+                                                <div>💻 ${log.platform}</div>
+                                                <div class="text-xs text-gray-400 truncate">${log.deviceInfo}</div>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            `}
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+            }).catch(err => {
+                showToast('접속 로그 로드 실패: ' + err);
+            });
+        }
+
+        function showBugReport() {
+            if (writer.name === '미인증') {
+                showToast('❌ 인증된 사용자만 접근 가능합니다');
+                showWriterModal();
+                return;
+            }
+            
+            getErrorLogs().then(logs => {
+                const modal = document.createElement('div');
+                modal.className = 'fixed inset-0 bg-black bg-opacity-60 modal-backdrop flex items-center justify-center z-50 p-3';
+                modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+                
+                modal.innerHTML = `
+                    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto modal-content">
+                        <div class="sticky top-0 bg-gradient-to-r from-red-600 to-pink-600 text-white p-4 md:p-6 rounded-t-3xl z-10">
+                            <div class="flex justify-between items-center">
+                                <h3 class="text-xl md:text-2xl font-black">🐛 버그 및 오류 리포트 (최근 ${logs.length}건)</h3>
+                                <button onclick="this.closest('.modal-backdrop').remove()" class="text-2xl md:text-3xl hover:text-gray-200 transition">×</button>
+                            </div>
+                        </div>
+                        <div class="p-4 md:p-6">
+                            <div class="mb-4">
+                                <button onclick="
+                                    const msg = prompt('오류 내용을 입력하세요:');
+                                    if (msg) {
+                                        logError('Bug', msg, '사용자 제보');
+                                        this.closest('.modal-backdrop').remove();
+                                        showToast('버그가 리포트되었습니다');
+                                    }
+                                " class="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold transition">
+                                    + 새 버그 리포트 작성
+                                </button>
+                            </div>
+                            ${logs.length === 0 ? '<div class="text-center text-gray-400 py-8">기록된 오류가 없습니다</div>' : `
+                                <div class="space-y-3">
+                                    ${logs.map(log => `
+                                        <div class="p-4 bg-gray-50 rounded-xl border-l-4 ${log.type === 'Bug' ? 'border-orange-500' : 'border-red-500'}">
+                                            <div class="flex justify-between items-start mb-2">
+                                                <span class="px-2 py-1 rounded-full text-xs font-bold ${log.type === 'Bug' ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700'}">${log.type}</span>
+                                                <span class="text-xs text-gray-500">${new Date(log.timestamp).toLocaleString('ko-KR')}</span>
+                                            </div>
+                                            <div class="text-sm text-gray-900 font-semibold mb-1">${log.message}</div>
+                                            ${log.details ? `<div class="text-xs text-gray-600">${log.details}</div>` : ''}
+                                            <div class="text-xs text-gray-400 mt-2">작성: ${log.user}</div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            `}
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+            }).catch(err => {
+                showToast('오류 로그 로드 실패: ' + err);
+            });
+        }
+
+        // ========== Focus View 기능 ==========
+        function showFocusView(cell, weekStart, colIdx) {
+            const focusView = document.getElementById('focusView');
+            const header = document.getElementById('focusViewHeader');
+            const body = document.getElementById('focusViewBody');
+            
+            const date = new Date(weekStart);
+            date.setDate(date.getDate() + colIdx);
+            const dateStr = `${date.getMonth() + 1}/${date.getDate()} (${DAYS[colIdx]})`;
+            
+            const statusInfo = STATUS_MAP[cell.status || 'SCHEDULED'];
+            
+            header.className = `p-4 rounded-t-2xl ${statusInfo.color}`;
+            header.innerHTML = `
+                <div class="flex justify-between items-center">
+                    <h3 class="text-xl font-black">${dateStr}</h3>
+                    <span class="px-3 py-1 rounded-full text-sm font-bold border-2 ${statusInfo.class}">
+                        ${statusInfo.name}
+                    </span>
+                </div>
+            `;
+            
+            body.innerHTML = `
+                <div class="space-y-4">
+                    ${cell.company ? `<div><p class="text-sm text-gray-500 font-semibold">업체명</p><p class="text-xl font-black text-gray-900">${cell.company}</p></div>` : ''}
+                    ${cell.loading ? `<div><p class="text-sm text-gray-500 font-semibold">상차지</p><p class="text-lg font-semibold text-blue-600">📍 ${cell.loading}</p></div>` : ''}
+                    ${cell.time ? `<div><p class="text-sm text-gray-500 font-semibold">시간</p><p class="text-lg font-semibold text-purple-600">🕐 ${cell.time}</p></div>` : ''}
+                    ${cell.bang || cell.jip ? `<div><p class="text-sm text-gray-500 font-semibold">배차 차량</p><p class="text-lg font-semibold text-green-600">🚛 ${[cell.bang, cell.jip].filter(Boolean).join(', ')}</p></div>` : ''}
+                    ${cell.contact ? `<div><p class="text-sm text-gray-500 font-semibold">연락처</p><p class="text-base font-semibold">📞 ${cell.contact}</p></div>` : ''}
+                    ${cell.notes ? `<div><p class="text-sm text-gray-500 font-semibold">특이사항</p><p class="text-base text-gray-700">📝 ${cell.notes}</p></div>` : ''}
+                    ${cell.author ? `<div class="pt-4 border-t"><p class="text-xs text-gray-400">작성: ${cell.author}</p></div>` : ''}
+                </div>
+            `;
+            
+            focusView.classList.remove('hidden');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeFocusView() {
+            document.getElementById('focusView').classList.add('hidden');
+            document.body.style.overflow = '';
+        }
+
+        // ========== 헤더 스크롤 개선 (BFX-UI-003: 임계값 추가) ==========
+        function handleHeaderScroll() {
+            const currentScrollY = window.scrollY;
+            const headerContent = document.getElementById('headerContent');
+            const icon = document.getElementById('headerToggleIcon');
+            
+            const scrollDelta = Math.abs(currentScrollY - lastScrollY);
+            const SCROLL_THRESHOLD = 30; // 임계값: 30px 이상 스크롤 시에만 반응
+            
+            // 50px 이상 스크롤 시에만 동작
+            if (currentScrollY < 50) {
+                if (headerContent.classList.contains('compact')) {
+                    headerContent.classList.remove('compact');
+                    if (icon) {
+                        icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>';
+                    }
+                }
+            } else if (scrollDelta >= SCROLL_THRESHOLD) {
+                // 충분히 스크롤했을 때만 반응 (깜빡임 방지)
+                if (currentScrollY > lastScrollY && !headerContent.classList.contains('compact')) {
+                    // 아래로 스크롤 (숨김)
+                    headerContent.classList.add('compact');
+                    if (icon) {
+                        icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"></path>';
+                    }
+                }
+                else if (currentScrollY < lastScrollY && headerContent.classList.contains('compact')) {
+                    // 위로 스크롤 (표시)
+                    headerContent.classList.remove('compact');
+                    if (icon) {
+                        icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>';
+                    }
+                }
+            }
+            
+            lastScrollY = currentScrollY;
+            scrollTicking = false;
+        }
+
+        // ========== 헤더 토글 (모바일) ==========
+        function toggleHeader() {
+            const content = document.getElementById('headerContent');
+            const icon = document.getElementById('headerToggleIcon');
+            
+            if (content.classList.contains('compact')) {
+                content.classList.remove('compact');
+                icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>';
+            } else {
+                content.classList.add('compact');
+                icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"></path>';
+            }
+        }
+
+        // ========== 드로어 메뉴 ==========
+        function openDrawer() {
+            document.getElementById('mobileDrawer').classList.add('open');
+            document.getElementById('drawerOverlay').classList.add('show');
+        }
+
+        function closeDrawer() {
+            document.getElementById('mobileDrawer').classList.remove('open');
+            document.getElementById('drawerOverlay').classList.remove('show');
+        }
+
+        // ========== 초기화 ==========
+        window.onload = () => {
+            try {
+                const today = new Date();
+                const weekStart = getWeekStart(today);
+                currentWeekStart = formatDate(weekStart);
+               
+                document.getElementById('weekPicker').value = getWeekInputValue(weekStart);
+                document.getElementById('specificDate').value = formatDate(today);
+               
+                loadWriter();
+                initDB().then(() => {
+                    loadWeek(currentWeekStart);
+                    updateWeekDisplay();
+                    
+                    // 초기화 완료 확인
+                    console.log('✅ 시스템 초기화 완료:', {
+                        currentWeek: currentWeekStart,
+                        dbVersion: 2,
+                        writer: writer.name,
+                        defaultRows: DEFAULT_ROWS
+                    });
+                }).catch(err => {
+                    console.error('❌ DB 초기화 실패:', err);
+                    logError('Error', 'DB 초기화 실패', err.toString());
+                    showToast('⚠️ 시스템 초기화 실패 - 페이지를 새로고침해주세요');
+                });
+            } catch (err) {
+                console.error('❌ 시스템 초기화 오류:', err);
+                logError('Error', '시스템 초기화 오류', err.toString());
+                alert('시스템 초기화 중 오류가 발생했습니다. 페이지를 새로고침해주세요.');
+            }
+        };
+
+        // ========== IndexedDB 관리 (BFX-BRW-008: 크로스 브라우징 호환성) ==========
+        function initDB() {
+            return new Promise((resolve, reject) => {
+                // Safari/Edge 호환성: window.indexedDB 체크
+                const indexedDB = window.indexedDB || window.mozIndexedDB || window.webkitIndexedDB || window.msIndexedDB;
+                
+                if (!indexedDB) {
+                    const error = 'IndexedDB를 지원하지 않는 브라우저입니다.';
+                    alert(error);
+                    reject(error);
+                    return;
+                }
+                
+                const req = indexedDB.open(DB_NAME, 2);
+               
+                req.onupgradeneeded = e => {
+                    db = e.target.result;
+                    
+                    // 주간 리포트
+                    if (!db.objectStoreNames.contains(STORE_NAME)) {
+                        db.createObjectStore(STORE_NAME, { keyPath: 'weekStart' });
+                    }
+                    
+                    // 접속 로그
+                    if (!db.objectStoreNames.contains(LOG_STORE)) {
+                        const logStore = db.createObjectStore(LOG_STORE, { keyPath: 'id', autoIncrement: true });
+                        logStore.createIndex('timestamp', 'timestamp', { unique: false });
+                    }
+                    
+                    // 에러 로그
+                    if (!db.objectStoreNames.contains(ERROR_STORE)) {
+                        const errorStore = db.createObjectStore(ERROR_STORE, { keyPath: 'id', autoIncrement: true });
+                        errorStore.createIndex('timestamp', 'timestamp', { unique: false });
+                    }
+                };
+               
+                req.onsuccess = e => {
+                    db = e.target.result;
+                    logAccess(); // 접속 기록
+                    resolve();
+                };
+               
+                req.onerror = e => {
+                    logError('Error', 'IndexedDB 초기화 실패', e.target.error);
+                    reject(e.target.error);
+                };
+            });
+        }
+
+        function getStore(mode) {
+            if (!db) return null;
+            const tx = db.transaction(STORE_NAME, mode);
+            return tx.objectStore(STORE_NAME);
+        }
+
+        function saveToIDB(data) {
+            const store = getStore('readwrite');
+            if (!store) return;
+            store.put(data);
+        }
+
+        // ========== 접속 로그 시스템 ==========
+        function logAccess() {
+            try {
+                const tx = db.transaction(LOG_STORE, 'readwrite');
+                const store = tx.objectStore(LOG_STORE);
+                
+                const logEntry = {
+                    timestamp: new Date().toISOString(),
+                    user: writer.name || '미인증',
+                    userType: writer.name !== '미인증' ? '인증' : '일반',
+                    deviceInfo: navigator.userAgent,
+                    platform: navigator.platform,
+                    language: navigator.language
+                };
+                
+                store.add(logEntry);
+                
+                // 50개 초과 시 오래된 것 삭제
+                const index = store.index('timestamp');
+                const countReq = store.count();
+                countReq.onsuccess = () => {
+                    if (countReq.result > MAX_LOGS) {
+                        const deleteCount = countReq.result - MAX_LOGS;
+                        const cursorReq = index.openCursor();
+                        let deleted = 0;
+                        cursorReq.onsuccess = e => {
+                            const cursor = e.target.result;
+                            if (cursor && deleted < deleteCount) {
+                                cursor.delete();
+                                deleted++;
+                                cursor.continue();
+                            }
+                        };
+                    }
+                };
+            } catch (err) {
+                console.error('접속 로그 실패:', err);
+            }
+        }
+
+        function getAccessLogs() {
+            return new Promise((resolve, reject) => {
+                if (writer.name === '미인증') {
+                    reject('권한 없음');
+                    return;
+                }
+                
+                const tx = db.transaction(LOG_STORE, 'readonly');
+                const store = tx.objectStore(LOG_STORE);
+                const index = store.index('timestamp');
+                const req = index.openCursor(null, 'prev'); // 최신순
+                
+                const logs = [];
+                req.onsuccess = e => {
+                    const cursor = e.target.result;
+                    if (cursor) {
+                        logs.push(cursor.value);
+                        cursor.continue();
+                    } else {
+                        resolve(logs);
+                    }
+                };
+                req.onerror = () => reject(req.error);
+            });
+        }
+
+        // ========== 에러 로그 시스템 ==========
+        function logError(type, message, details = '') {
+            try {
+                const tx = db.transaction(ERROR_STORE, 'readwrite');
+                const store = tx.objectStore(ERROR_STORE);
+                
+                const errorEntry = {
+                    timestamp: new Date().toISOString(),
+                    type: type, // 'Bug' 또는 'Error'
+                    message: message,
+                    details: details,
+                    user: writer.name
+                };
+                
+                store.add(errorEntry);
+                
+                // 50개 초과 시 오래된 것 삭제
+                const index = store.index('timestamp');
+                const countReq = store.count();
+                countReq.onsuccess = () => {
+                    if (countReq.result > MAX_LOGS) {
+                        const deleteCount = countReq.result - MAX_LOGS;
+                        const cursorReq = index.openCursor();
+                        let deleted = 0;
+                        cursorReq.onsuccess = e => {
+                            const cursor = e.target.result;
+                            if (cursor && deleted < deleteCount) {
+                                cursor.delete();
+                                deleted++;
+                                cursor.continue();
+                            }
+                        };
+                    }
+                };
+            } catch (err) {
+                console.error('에러 로그 실패:', err);
+            }
+        }
+
+        function getErrorLogs() {
+            return new Promise((resolve, reject) => {
+                if (writer.name === '미인증') {
+                    reject('권한 없음');
+                    return;
+                }
+                
+                const tx = db.transaction(ERROR_STORE, 'readonly');
+                const store = tx.objectStore(ERROR_STORE);
+                const index = store.index('timestamp');
+                const req = index.openCursor(null, 'prev'); // 최신순
+                
+                const logs = [];
+                req.onsuccess = e => {
+                    const cursor = e.target.result;
+                    if (cursor) {
+                        logs.push(cursor.value);
+                        cursor.continue();
+                    } else {
+                        resolve(logs);
+                    }
+                };
+                req.onerror = () => reject(req.error);
+            });
+        }
+
+        // ========== 날짜 유틸리티 (BFX-BRW-008: Safari 호환성) ==========
+        function formatDate(date) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+        
+        // Safari 호환: 날짜 파싱 개선
+        function parseDate(dateString) {
+            // Safari는 'YYYY-MM-DD' 형식을 제대로 파싱하지 못할 수 있음
+            const parts = dateString.split('-');
+            if (parts.length === 3) {
+                return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+            }
+            return new Date(dateString);
+        }
+
+        function getWeekStart(date) {
+            const d = new Date(date);
+            d.setDate(d.getDate() - d.getDay());
+            d.setHours(0, 0, 0, 0);
+            return d;
+        }
+
+        function getWeekInputValue(date) {
+            const year = date.getFullYear();
+            const weekNum = getWeekNumber(date);
+            return `${year}-W${String(weekNum).padStart(2, '0')}`;
+        }
+
+        function getWeekNumber(date) {
+            const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+            d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+            const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+            return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+        }
+
+        function updateWeekDisplay() {
+            const start = new Date(currentWeekStart);
+            const end = new Date(start);
+            end.setDate(start.getDate() + 6);
+           
+            const weekNum = getWeekNumber(start);
+            document.getElementById('weekDisplay').textContent =
+                `${start.getFullYear()}년 ${start.getMonth() + 1}월 ${weekNum}주차`;
+           
+            document.getElementById('weekRange').textContent =
+                `${start.getMonth() + 1}/${start.getDate()} ~ ${end.getMonth() + 1}/${end.getDate()}`;
+        }
+
+        // ========== 주차 네비게이션 ==========
+        function navigateWeek(offset) {
+            const current = new Date(currentWeekStart);
+            current.setDate(current.getDate() + offset * 7);
+            currentWeekStart = formatDate(getWeekStart(current));
+            document.getElementById('weekPicker').value = getWeekInputValue(new Date(currentWeekStart));
+            loadWeek(currentWeekStart);
+            updateWeekDisplay();
+        }
+
+        function goToToday() {
+            const today = new Date();
+            currentWeekStart = formatDate(getWeekStart(today));
+            document.getElementById('weekPicker').value = getWeekInputValue(today);
+            loadWeek(currentWeekStart);
+            updateWeekDisplay();
+        }
+
+        function changeWeek(weekValue) {
+            const [year, week] = weekValue.split('-W');
+            const jan4 = new Date(year, 0, 4);
+            const weekStart = new Date(jan4);
+            weekStart.setDate(jan4.getDate() - jan4.getDay() + (parseInt(week) - 1) * 7);
+           
+            currentWeekStart = formatDate(getWeekStart(weekStart));
+            loadWeek(currentWeekStart);
+            updateWeekDisplay();
+        }
+
+        // ========== 페이지 전환 ==========
+        function showPage(page) {
+            if (page === 'input' && writer.name === '미인증') {
+                showToast('작성자 인증이 필요합니다');
+                showWriterModal();
+                return;
+            }
+            
+            document.querySelectorAll('#viewPage, #inputPage').forEach(el => el.classList.add('hidden'));
+            document.getElementById(`${page}Page`).classList.remove('hidden');
+           
+            document.getElementById('btnView').className = 'flex-1 py-3 md:py-4 rounded-xl font-black text-base md:text-lg transition ' +
+                (page === 'view' ? 'shadow-lg bg-gradient-to-r from-blue-500 to-indigo-600 text-white' : 'bg-gray-200 text-gray-700');
+           
+            document.getElementById('btnInput').className = 'flex-1 py-3 md:py-4 rounded-xl font-black text-base md:text-lg transition ' +
+                (page === 'input' ? 'shadow-lg bg-gradient-to-r from-green-500 to-emerald-600 text-white' : 'bg-gray-200 text-gray-700');
+        }
+
+        // ========== 데이터 로드 (BFX-JS-006: 방어 로직 추가) ==========
+        function loadWeek(weekStart) {
+            if (!db) {
+                logError('Error', 'DB가 초기화되지 않음', 'loadWeek');
+                return;
+            }
+           
+            const store = getStore('readonly');
+            if (!store) {
+                logError('Error', 'Store를 가져올 수 없음', 'loadWeek');
+                return;
+            }
+            
+            const req = store.get(weekStart);
+            req.onsuccess = e => {
+                let data = e.target.result;
+                
+                // 방어 로직: data 유효성 검증
+                if (!data) {
+                    data = createEmptyWeek(weekStart);
+                    saveToIDB(data);
+                }
+                
+                // 방어 로직: rows 배열 검증
+                if (!data.rows || !Array.isArray(data.rows)) {
+                    logError('Bug', 'data.rows가 유효하지 않음', `weekStart: ${weekStart}`);
+                    data.rows = createEmptyWeek(weekStart).rows;
+                    saveToIDB(data);
+                }
+                
+                renderInputTable(data);
+                renderViewTable(data);
+            };
+            req.onerror = e => {
+                logError('Error', '데이터 로드 실패', e.target.error);
+                console.error('데이터 로드 실패:', e.target.error);
+            };
+        }
+
+        function createEmptyWeek(weekStart) {
+            return {
+                weekStart,
+                rows: Array.from({length: DEFAULT_ROWS}, () =>
+                    Array(7).fill(null).map(() => ({
+                        company: '', loading: '', time: '', bang: '', jip: '',
+                        contact: '', notes: '', author: '', status: 'SCHEDULED'
+                    }))
+                )
+            };
+        }
+
+        // ========== 테이블 렌더링 (BFX-JS-006: 방어 로직 추가) ==========
+        function renderInputTable(data) {
+            const tbody = document.getElementById('inputTableBody');
+            if (!tbody) return;
+            
+            // 방어 로직: data.rows 검증
+            if (!data || !data.rows || !Array.isArray(data.rows)) {
+                logError('Bug', 'renderInputTable: 유효하지 않은 데이터', JSON.stringify(data));
+                tbody.innerHTML = '<tr><td colspan="7" class="p-4 text-center text-red-600">데이터 오류 발생</td></tr>';
+                return;
+            }
+            
+            renderHeaders('day', data.weekStart);
+            tbody.innerHTML = '';
+            
+            data.rows.forEach((row, rowIdx) => {
+                if (!Array.isArray(row)) {
+                    logError('Bug', `renderInputTable: row[${rowIdx}]가 배열이 아님`, typeof row);
+                    return;
+                }
+                
+                const tr = document.createElement('tr');
+                row.forEach((cell, colIdx) => {
+                    const td = document.createElement('td');
+                    td.className = 'border border-gray-200 p-2 align-top bg-white';
+                   
+                    const hasContent = cell.company || cell.loading || cell.time || cell.bang || cell.jip;
+                    const statusInfo = STATUS_MAP[cell.status || 'SCHEDULED'];
+                   
+                    td.innerHTML = `
+                        <div class="cell-preview ${hasContent ? 'has-content' : 'bg-gray-50 border-2 border-dashed border-gray-300'} p-2 md:p-3 rounded-xl" onclick="openPivotModal(${rowIdx}, ${colIdx})">
+                            ${hasContent ? `
+                                <div class="flex justify-between items-start mb-2">
+                                    <div class="flex gap-1">
+                                        ${rowIdx > 0 ? `<button class="move-btn p-1 bg-blue-100 hover:bg-blue-200 rounded text-xs" onclick="event.stopPropagation(); moveCell(${rowIdx}, ${colIdx}, -1)" title="위로 이동">↑</button>` : ''}
+                                        ${rowIdx < data.rows.length - 1 ? `<button class="move-btn p-1 bg-blue-100 hover:bg-blue-200 rounded text-xs" onclick="event.stopPropagation(); moveCell(${rowIdx}, ${colIdx}, 1)" title="아래로 이동">↓</button>` : ''}
+                                    </div>
+                                    <button class="p-1 bg-red-100 hover:bg-red-200 rounded text-xs font-bold text-red-600" onclick="event.stopPropagation(); deleteCell(${rowIdx}, ${colIdx})">삭제</button>
+                                </div>
+                                <div class="mb-1">
+                                    <span class="inline-block px-2 py-0.5 rounded-full text-xs font-bold ${statusInfo.color}">
+                                        ${statusInfo.name}
+                                    </span>
+                                </div>
+                            ` : ''}
+                            ${formatCellPreview(cell)}
+                        </div>
+                    `;
+                    tr.appendChild(td);
+                });
+                tbody.appendChild(tr);
+            });
+        }
+
+        function renderViewTable(data) {
+            renderHeaders('vday', data.weekStart);
+            const tbody = document.getElementById('viewTableBody');
+            if (!tbody) return;
+            
+            // 방어 로직: data.rows 검증
+            if (!data || !data.rows || !Array.isArray(data.rows)) {
+                logError('Bug', 'renderViewTable: 유효하지 않은 데이터', JSON.stringify(data));
+                tbody.innerHTML = '<tr><td colspan="7" class="p-4 text-center text-red-600">데이터 오류 발생</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = '';
+           
+            data.rows.forEach((row, rowIdx) => {
+                if (!Array.isArray(row)) {
+                    logError('Bug', `renderViewTable: row[${rowIdx}]가 배열이 아님`, typeof row);
+                    return;
+                }
+                
+                const tr = document.createElement('tr');
+                row.forEach((cell, colIdx) => {
+                    const td = document.createElement('td');
+                    td.className = 'border border-gray-200 p-2 md:p-3 align-top bg-white cursor-pointer hover:bg-gray-50 transition';
+                   
+                    const hasContent = cell.company || cell.loading || cell.time || cell.bang || cell.jip;
+                   
+                    if (!hasContent) {
+                        td.innerHTML = '<div class="text-gray-300 text-center py-4 text-xs md:text-sm">내용 없음</div>';
+                    } else {
+                        const statusInfo = STATUS_MAP[cell.status || 'SCHEDULED'];
+                        
+                        td.onclick = () => showFocusView(cell, data.weekStart, colIdx);
+                        
+                        // 작성자 이름 숨김 처리 (FE-002)
+                        td.innerHTML = `
+                            <div class="text-xs md:text-sm space-y-2">
+                                <span class="inline-block px-2 py-1 rounded-full text-xs font-bold ${statusInfo.color} mb-1">
+                                    ${statusInfo.name}
+                                </span>
+                                ${cell.company ? `<div class="font-black text-gray-900 text-sm md:text-base">${cell.company}</div>` : ''}
+                                ${cell.loading ? `<div class="text-blue-600 font-semibold">📍 ${cell.loading}</div>` : ''}
+                                ${cell.time ? `<div class="text-purple-600 font-semibold">🕐 ${cell.time}</div>` : ''}
+                                ${cell.bang || cell.jip ? `<div class="text-green-600 font-semibold">🚛 ${[cell.bang, cell.jip].filter(Boolean).join(', ')}</div>` : ''}
+                            </div>
+                        `;
+                    }
+                    tr.appendChild(td);
+                });
+                tbody.appendChild(tr);
+            });
+        }
+
+        function renderHeaders(prefix, weekStart) {
+            const start = new Date(weekStart);
+            for (let i = 0; i < 7; i++) {
+                const date = new Date(start);
+                date.setDate(start.getDate() + i);
+                const dayClass = i === 0 ? 'text-red-500' : i === 6 ? 'text-blue-500' : '';
+               
+                const header = document.getElementById(`${prefix}${i}`);
+                if (header) {
+                    header.innerHTML = `
+                        <div class="${dayClass} text-sm md:text-base font-bold">${date.getMonth() + 1}/${date.getDate()}</div>
+                        <div class="text-xs font-medium">(${DAYS[i]})</div>
+                    `;
+                }
+            }
+        }
+
+        function formatCellPreview(cell) {
+            if (!cell.company && !cell.loading && !cell.time && !cell.bang && !cell.jip) {
+                return '<div class="text-gray-400 text-center py-4 md:py-6 font-semibold text-xs md:text-sm">클릭하여 입력</div>';
+            }
+           
+            return `
+                <div class="text-xs md:text-sm space-y-1">
+                    ${cell.company ? `<div class="font-black text-gray-900">${cell.company}</div>` : ''}
+                    ${cell.loading ? `<div class="text-blue-600 font-semibold">📍 ${cell.loading}</div>` : ''}
+                    ${cell.time ? `<div class="text-purple-600 font-semibold">🕐 ${cell.time}</div>` : ''}
+                    ${cell.bang || cell.jip ? `<div class="text-green-600 font-semibold">🚛 ${[cell.bang, cell.jip].filter(Boolean).join(', ')}</div>` : ''}
+                    ${cell.author ? `<div class="text-gray-400 text-xs mt-1">작성: ${cell.author}</div>` : ''}
+                </div>
+            `;
+        }
+
+        // ========== 셀 이동/삭제 (날짜 이동 버그 수정) ==========
+        // NOTE: 날짜 이동 시 복사가 아닌 이동(MOVE) 처리 - 원본 셀 삭제 후 새 위치에 저장
+        function moveCell(row, col, direction) {
+            const targetRow = row + direction;
+            if (targetRow < 0) return;
+           
+            getStore('readonly').get(currentWeekStart).onsuccess = e => {
+                const data = e.target.result;
+                if (targetRow >= data.rows.length) {
+                    data.rows.push(Array(7).fill(null).map(() => ({
+                        company: '', loading: '', time: '', bang: '', jip: '',
+                        contact: '', notes: '', author: '', status: 'SCHEDULED'
+                    })));
+                }
+               
+                // 이동: swap
+                const temp = data.rows[row][col];
+                data.rows[row][col] = data.rows[targetRow][col];
+                data.rows[targetRow][col] = temp;
+               
+                saveToIDB(data);
+                renderInputTable(data);
+                renderViewTable(data);
+                showToast('이동 완료!');
+            };
+        }
+
+        function deleteCell(row, col) {
+            if (!confirm('이 배차 정보를 삭제하시겠습니까?')) return;
+           
+            getStore('readonly').get(currentWeekStart).onsuccess = e => {
+                const data = e.target.result;
+                data.rows[row][col] = {
+                    company: '', loading: '', time: '', bang: '', jip: '',
+                    contact: '', notes: '', author: '', status: 'SCHEDULED'
+                };
+               
+                saveToIDB(data);
+                renderInputTable(data);
+                renderViewTable(data);
+                showToast('삭제되었습니다');
+            };
+        }
+
+        // ========== 피벗 모달 ==========
+        function openPivotModalForDate() {
+            if (writer.name === '미인증') {
+                alert('작성자 인증이 필요합니다.');
+                showWriterModal();
+                return;
+            }
+           
+            const dateStr = document.getElementById('specificDate').value;
+            if (!dateStr) {
+                alert('날짜를 선택하세요.');
+                return;
+            }
+           
+            const selectedDate = new Date(dateStr);
+            const weekStart = getWeekStart(selectedDate);
+            const dayOfWeek = selectedDate.getDay();
+            const weekStartStr = formatDate(weekStart);
+           
+            getStore('readonly').get(weekStartStr).onsuccess = e => {
+                let data = e.target.result;
+                if (!data) {
+                    data = createEmptyWeek(weekStartStr);
+                }
+               
+                let targetRow = -1;
+                for (let i = 0; i < data.rows.length; i++) {
+                    const cell = data.rows[i][dayOfWeek];
+                    if (!cell.company && !cell.loading && !cell.bang && !cell.jip) {
+                        targetRow = i;
+                        break;
+                    }
+                }
+               
+                if (targetRow === -1) {
+                    data.rows.push(Array(7).fill(null).map(() => ({
+                        company: '', loading: '', time: '', bang: '', jip: '',
+                        contact: '', notes: '', author: '', status: 'SCHEDULED'
+                    })));
+                    targetRow = data.rows.length - 1;
+                    saveToIDB(data);
+                }
+               
+                currentWeekStart = weekStartStr;
+                currentRow = targetRow;
+                currentCol = dayOfWeek;
+               
+                document.getElementById('weekPicker').value = getWeekInputValue(weekStart);
+                loadWeek(currentWeekStart);
+                updateWeekDisplay();
+                showPage('input');
+                openPivotModal(targetRow, dayOfWeek);
+            };
+        }
+
+        function openPivotModal(row, col) {
+            if (writer.name === '미인증') {
+                alert('작성자 인증이 필요합니다.');
+                showWriterModal();
+                return;
+            }
+           
+            currentRow = row;
+            currentCol = col;
+           
+            getStore('readonly').get(currentWeekStart).onsuccess = e => {
+                const data = e.target.result;
+                const cell = data && data.rows[row] ? data.rows[row][col] : {};
+               
+                document.getElementById('pivotCompany').value = cell.company || '';
+                document.getElementById('pivotLoading').value = cell.loading || '';
+                document.getElementById('pivotContact').value = cell.contact || '';
+                document.getElementById('pivotNotes').value = cell.notes || '';
+                document.getElementById('pivotTimeInput').value = cell.time || '';
+                document.getElementById('pivotDate').value = getDateFromWeekAndCol(currentWeekStart, col);
+                document.getElementById('pivotStatus').value = cell.status || 'SCHEDULED';
+               
+                pivotSelection = {
+                    company: cell.company || '',
+                    loading: cell.loading || '',
+                    time: cell.time || '',
+                    bang: cell.bang || '',
+                    jip: cell.jip || '',
+                    contact: cell.contact || '',
+                    notes: cell.notes || '',
+                    date: getDateFromWeekAndCol(currentWeekStart, col),
+                    status: cell.status || 'SCHEDULED'
+                };
+               
+                renderPivotModal();
+                updatePivotPreview();
+               
+                document.getElementById('pivotModal').classList.remove('hidden');
+                document.getElementById('pivotModal').classList.add('flex');
+            };
+        }
+
+        function getDateFromWeekAndCol(weekStart, col) {
+            const start = new Date(weekStart);
+            const date = new Date(start);
+            date.setDate(start.getDate() + col);
+            return formatDate(date);
+        }
+
+        function closePivotModal() {
+            document.getElementById('pivotModal').classList.add('hidden');
+            document.getElementById('pivotModal').classList.remove('flex');
+        }
+
+        function renderPivotModal() {
+            const companiesChips = document.getElementById('companiesChips');
+            if (COMPANIES.length > 0) {
+                companiesChips.innerHTML = COMPANIES.map((c, i) => {
+                    const escaped = c.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                    return `
+                        <span class="chip" onclick="event.target.tagName !== 'BUTTON' && (document.getElementById('pivotCompany').value='${escaped}', updatePivotPreview())">
+                            ${c}
+                            <button onclick="event.stopPropagation(); removeCompany(${i})">×</button>
+                        </span>
+                    `;
+                }).join('');
+            } else {
+                companiesChips.innerHTML = '<div class="text-xs text-gray-400">저장된 업체명이 없습니다.</div>';
+            }
+           
+            const loadingsChips = document.getElementById('loadingsChips');
+            if (LOADINGS.length > 0) {
+                loadingsChips.innerHTML = LOADINGS.map((l, i) => {
+                    const escaped = l.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                    return `
+                        <span class="chip" onclick="event.target.tagName !== 'BUTTON' && (document.getElementById('pivotLoading').value='${escaped}', updatePivotPreview())">
+                            ${l}
+                            <button onclick="event.stopPropagation(); removeLoading(${i})">×</button>
+                        </span>
+                    `;
+                }).join('');
+            } else {
+                loadingsChips.innerHTML = '<div class="text-xs text-gray-400">저장된 상차지가 없습니다.</div>';
+            }
+           
+            const bangCount = parseInt(localStorage.getItem('bangCount') || '5');
+            const jipCount = parseInt(localStorage.getItem('jipCount') || '3');
+           
+            const bangSelect = document.getElementById('bangSelect');
+            const jipSelect = document.getElementById('jipSelect');
+           
+            bangSelect.innerHTML = '<option value="">선택안함</option>' +
+                Array.from({length: bangCount}, (_, i) => `<option value="방${i+1}">방${i+1}</option>`).join('');
+            jipSelect.innerHTML = '<option value="">선택안함</option>' +
+                Array.from({length: jipCount}, (_, i) => `<option value="집${i+1}">집${i+1}</option>`).join('');
+           
+            bangSelect.value = pivotSelection.bang;
+            jipSelect.value = pivotSelection.jip;
+        }
+
+        function selectPivot(field, value) {
+            pivotSelection[field] = value;
+            updatePivotPreview();
+        }
+
+        function updatePivotPreview() {
+            pivotSelection.company = document.getElementById('pivotCompany').value.trim();
+            pivotSelection.loading = document.getElementById('pivotLoading').value.trim();
+            pivotSelection.contact = document.getElementById('pivotContact').value.trim();
+            pivotSelection.notes = document.getElementById('pivotNotes').value.trim();
+            pivotSelection.time = document.getElementById('pivotTimeInput').value.trim();
+            pivotSelection.date = document.getElementById('pivotDate').value;
+            pivotSelection.status = document.getElementById('pivotStatus').value;
+           
+            const preview = document.getElementById('previewContent');
+            const parts = [];
+            
+            const statusInfo = STATUS_MAP[pivotSelection.status];
+            parts.push(`<div class="mb-2"><span class="px-3 py-1 rounded-full text-sm font-bold ${statusInfo.color}">${statusInfo.name}</span></div>`);
+           
+            if (pivotSelection.company) parts.push(`<div class="font-black text-base md:text-lg text-gray-900">${pivotSelection.company}</div>`);
+            if (pivotSelection.loading) parts.push(`<div class="text-blue-600 font-semibold">📍 ${pivotSelection.loading}</div>`);
+            if (pivotSelection.time) parts.push(`<div class="text-purple-600 font-semibold">🕐 ${pivotSelection.time}</div>`);
+            if (pivotSelection.bang || pivotSelection.jip) {
+                const vehicles = [pivotSelection.bang, pivotSelection.jip].filter(Boolean).join(', ');
+                parts.push(`<div class="text-green-600 font-semibold">🚛 ${vehicles}</div>`);
+            }
+            if (pivotSelection.contact) parts.push(`<div class="text-gray-700">📞 ${pivotSelection.contact}</div>`);
+            if (pivotSelection.notes) parts.push(`<div class="text-gray-700">📝 ${pivotSelection.notes}</div>`);
+           
+            preview.innerHTML = parts.length > 1 ? parts.join('') : '<div class="text-gray-400">입력한 내용이 여기에 표시됩니다.</div>';
+        }
+
+        function saveCompanyToList() {
+            const company = document.getElementById('pivotCompany').value.trim();
+            if (!company) {
+                alert('업체명을 입력하세요.');
+                return;
+            }
+           
+            if (!COMPANIES.includes(company)) {
+                COMPANIES.unshift(company);
+                if (COMPANIES.length > MAX_COMPANIES) COMPANIES.pop();
+                localStorage.setItem('companyList', JSON.stringify(COMPANIES));
+                renderPivotModal();
+                showToast('업체명이 목록에 저장되었습니다');
+            }
+        }
+
+        function saveLoadingToList() {
+            const loading = document.getElementById('pivotLoading').value.trim();
+            if (!loading) {
+                alert('상차지를 입력하세요.');
+                return;
+            }
+           
+            if (!LOADINGS.includes(loading)) {
+                LOADINGS.unshift(loading);
+                if (LOADINGS.length > MAX_LOADINGS) LOADINGS.pop();
+                localStorage.setItem('loadingList', JSON.stringify(LOADINGS));
+                renderPivotModal();
+                showToast('상차지가 목록에 저장되었습니다');
+            }
+        }
+
+        function removeCompany(index) {
+            if (confirm('이 업체명을 목록에서 삭제하시겠습니까?')) {
+                COMPANIES.splice(index, 1);
+                localStorage.setItem('companyList', JSON.stringify(COMPANIES));
+                renderPivotModal();
+            }
+        }
+
+        function removeLoading(index) {
+            if (confirm('이 상차지를 목록에서 삭제하시겠습니까?')) {
+                LOADINGS.splice(index, 1);
+                localStorage.setItem('loadingList', JSON.stringify(LOADINGS));
+                renderPivotModal();
+            }
+        }
+
+        // ========== 저장 로직 (날짜 이동 버그 수정 - BFX-001) ==========
+        // CRITICAL FIX: 날짜 이동 시 데이터 손실 방지 - 원본 백업 → 새 위치 저장 → 원본 삭제
+        function applyAndSave() {
+            updatePivotPreview();
+           
+            if (!pivotSelection.company) {
+                alert('업체명은 필수입니다.');
+                return;
+            }
+           
+            const newDate = document.getElementById('pivotDate').value;
+            if (!newDate) {
+                alert('날짜를 선택하세요.');
+                return;
+            }
+           
+            const selectedDate = new Date(newDate);
+            const newWeekStart = formatDate(getWeekStart(selectedDate));
+            const newCol = selectedDate.getDay();
+            
+            // 새로운 데이터 객체 생성
+            const newCellData = {
+                company: pivotSelection.company,
+                loading: pivotSelection.loading,
+                time: pivotSelection.time,
+                bang: pivotSelection.bang,
+                jip: pivotSelection.jip,
+                contact: pivotSelection.contact,
+                notes: pivotSelection.notes,
+                author: writer.name,
+                status: pivotSelection.status
+            };
+           
+            // 같은 주 내에서 이동하는 경우
+            if (currentWeekStart === newWeekStart && currentRow >= 0 && currentCol >= 0) {
+                getStore('readonly').get(currentWeekStart).onsuccess = e => {
+                    const data = e.target.result || createEmptyWeek(currentWeekStart);
+                    
+                    // 원본 위치와 새 위치가 같으면 단순 업데이트
+                    if (currentRow === -1 || currentCol === -1) {
+                        // 새 입력
+                        let targetRow = -1;
+                        for (let i = 0; i < data.rows.length; i++) {
+                            const cell = data.rows[i][newCol];
+                            if (!cell.company && !cell.loading && !cell.bang && !cell.jip) {
+                                targetRow = i;
+                                break;
+                            }
+                        }
+                        
+                        if (targetRow === -1) {
+                            data.rows.push(Array(7).fill(null).map(() => ({
+                                company: '', loading: '', time: '', bang: '', jip: '',
+                                contact: '', notes: '', author: '', status: 'SCHEDULED'
+                            })));
+                            targetRow = data.rows.length - 1;
+                        }
+                        
+                        data.rows[targetRow][newCol] = newCellData;
+                    } else {
+                        // 기존 셀 수정 또는 이동
+                        // 원본 삭제 (비우기)
+                        data.rows[currentRow][currentCol] = {
+                            company: '', loading: '', time: '', bang: '', jip: '',
+                            contact: '', notes: '', author: '', status: 'SCHEDULED'
+                        };
+                        
+                        // 새 위치 찾기
+                        let targetRow = -1;
+                        for (let i = 0; i < data.rows.length; i++) {
+                            const cell = data.rows[i][newCol];
+                            if (!cell.company && !cell.loading && !cell.bang && !cell.jip) {
+                                targetRow = i;
+                                break;
+                            }
+                        }
+                        
+                        if (targetRow === -1) {
+                            data.rows.push(Array(7).fill(null).map(() => ({
+                                company: '', loading: '', time: '', bang: '', jip: '',
+                                contact: '', notes: '', author: '', status: 'SCHEDULED'
+                            })));
+                            targetRow = data.rows.length - 1;
+                        }
+                        
+                        // 새 위치에 저장
+                        data.rows[targetRow][newCol] = newCellData;
+                    }
+                    
+                    saveToIDB(data);
+                    loadWeek(currentWeekStart);
+                    closePivotModal();
+                    showToast('✅ 저장되었습니다!');
+                };
+            } else {
+                // 다른 주로 이동하는 경우
+                getStore('readonly').get(currentWeekStart).onsuccess = e1 => {
+                    const oldData = e1.target.result || createEmptyWeek(currentWeekStart);
+                    
+                    // 원본이 있으면 삭제
+                    if (currentRow >= 0 && currentCol >= 0 && oldData.rows[currentRow]) {
+                        oldData.rows[currentRow][currentCol] = {
+                            company: '', loading: '', time: '', bang: '', jip: '',
+                            contact: '', notes: '', author: '', status: 'SCHEDULED'
+                        };
+                        saveToIDB(oldData);
+                    }
+                    
+                    // 새 주에 저장
+                    getStore('readonly').get(newWeekStart).onsuccess = e2 => {
+                        let newData = e2.target.result;
+                        if (!newData) {
+                            newData = createEmptyWeek(newWeekStart);
+                        }
+                        
+                        let targetRow = -1;
+                        for (let i = 0; i < newData.rows.length; i++) {
+                            const cell = newData.rows[i][newCol];
+                            if (!cell.company && !cell.loading && !cell.bang && !cell.jip) {
+                                targetRow = i;
+                                break;
+                            }
+                        }
+                        
+                        if (targetRow === -1) {
+                            newData.rows.push(Array(7).fill(null).map(() => ({
+                                company: '', loading: '', time: '', bang: '', jip: '',
+                                contact: '', notes: '', author: '', status: 'SCHEDULED'
+                            })));
+                            targetRow = newData.rows.length - 1;
+                        }
+                        
+                        newData.rows[targetRow][newCol] = newCellData;
+                        saveToIDB(newData);
+                        
+                        currentWeekStart = newWeekStart;
+                        document.getElementById('weekPicker').value = getWeekInputValue(new Date(newWeekStart));
+                        updateWeekDisplay();
+                        
+                        loadWeek(currentWeekStart);
+                        closePivotModal();
+                        showToast('✅ 저장되었습니다!');
+                    };
+                };
+            }
+        }
+
+        // ========== 작성자 인증 ==========
+        function loadWriter() {
+            const name = localStorage.getItem('writerName');
+            const pin = localStorage.getItem('writerPin');
+           
+            if (name && pin) {
+                writer = { name, pin };
+                document.getElementById('writerName').textContent = name;
+                document.getElementById('writerNameMobile').textContent = name;
+            }
+        }
+
+        function saveWriter() {
+            const name = document.getElementById('writerNameInput').value.trim();
+            const pin = document.getElementById('writerPassInput').value.trim();
+           
+            if (!name) {
+                alert('이름을 입력하세요.');
+                return;
+            }
+           
+            if (!pin || pin.length !== 4 || !/^\d{4}$/.test(pin)) {
+                alert('4자리 숫자 비밀번호를 입력하세요.');
+                return;
+            }
+           
+            localStorage.setItem('writerName', name);
+            localStorage.setItem('writerPin', pin);
+           
+            writer = { name, pin };
+            document.getElementById('writerName').textContent = name;
+            document.getElementById('writerNameMobile').textContent = name;
+           
+            // 인증 후 접속 로그 갱신
+            logAccess();
+           
+            closeWriterModal();
+            showToast(`✅ ${name}님으로 인증되었습니다`);
+            showPage('input');
+        }
+
+        function logout() {
+            if (confirm('로그아웃 하시겠습니까?')) {
+                localStorage.removeItem('writerName');
+                localStorage.removeItem('writerPin');
+                writer = { name: '미인증', pin: '' };
+                document.getElementById('writerName').textContent = '미인증';
+                document.getElementById('writerNameMobile').textContent = '미인증';
+                closeWriterModal();
+                showPage('view');
+                showToast('로그아웃되었습니다');
+            }
+        }
+
+        function showWriterModal() {
+            document.getElementById('writerModal').classList.remove('hidden');
+            document.getElementById('writerModal').classList.add('flex');
+        }
+
+        function closeWriterModal() {
+            document.getElementById('writerModal').classList.add('hidden');
+            document.getElementById('writerModal').classList.remove('flex');
+        }
+
+        // ========== 검색 ==========
+        function showSearchModal() {
+            document.getElementById('searchModal').classList.remove('hidden');
+            document.getElementById('searchModal').classList.add('flex');
+           
+            const today = new Date();
+            const monthAgo = new Date(today);
+            monthAgo.setMonth(today.getMonth() - 1);
+           
+            document.getElementById('searchStartDate').value = formatDate(monthAgo);
+            document.getElementById('searchEndDate').value = formatDate(today);
+        }
+
+        function closeSearchModal() {
+            document.getElementById('searchModal').classList.add('hidden');
+            document.getElementById('searchModal').classList.remove('flex');
+        }
+
+        function performSearch() {
+            const keyword = document.getElementById('searchInput').value.trim().toLowerCase();
+            const startDate = document.getElementById('searchStartDate').value;
+            const endDate = document.getElementById('searchEndDate').value;
+           
+            if (!keyword || !startDate || !endDate) {
+                document.getElementById('searchResults').innerHTML = '<div class="text-gray-400 text-center py-8 text-sm">검색어와 날짜를 입력하세요.</div>';
+                return;
+            }
+           
+            const results = [];
+            const start = new Date(startDate);
+            const end = new Date(endDate + 'T23:59:59');
+           
+            const req = getStore('readonly').openCursor();
+            req.onsuccess = e => {
+                const cursor = e.target.result;
+                if (cursor) {
+                    const data = cursor.value;
+                    
+                    // 방어 로직: rows 검증
+                    if (!data || !data.rows || !Array.isArray(data.rows)) {
+                        cursor.continue();
+                        return;
+                    }
+                    
+                    const weekStart = new Date(data.weekStart);
+                   
+                    data.rows.forEach((row, rowIdx) => {
+                        if (!Array.isArray(row)) return;
+                        
+                        row.forEach((cell, colIdx) => {
+                            if (!cell) return;
+                            
+                            const cellDate = new Date(weekStart);
+                            cellDate.setDate(weekStart.getDate() + colIdx);
+                           
+                            const searchText = `${cell.company || ''} ${cell.loading || ''} ${cell.author || ''}`.toLowerCase();
+                            if (searchText.includes(keyword) && cell.company && cellDate >= start && cellDate <= end) {
+                                results.push({
+                                    date: cellDate,
+                                    cell: cell,
+                                    weekStart: data.weekStart
+                                });
+                            }
+                        });
+                    });
+                    cursor.continue();
+                } else {
+                    displaySearchResults(results);
+                }
+            };
+            
+            req.onerror = e => {
+                logError('Error', '검색 실패', e.target.error);
+                showToast('검색 중 오류 발생');
+            };
+        }
+
+        function displaySearchResults(results) {
+            const container = document.getElementById('searchResults');
+           
+            if (results.length === 0) {
+                container.innerHTML = '<div class="text-gray-400 text-center py-8 text-sm">검색 결과가 없습니다.</div>';
+                return;
+            }
+           
+            container.innerHTML = results.map(r => {
+                const dateStr = `${r.date.getMonth() + 1}/${r.date.getDate()} (${DAYS[r.date.getDay()]})`;
+                const statusInfo = STATUS_MAP[r.cell.status || 'SCHEDULED'];
+                return `
+                    <div class="p-3 md:p-4 bg-white border border-gray-200 rounded-xl hover:shadow-lg transition cursor-pointer" onclick="goToSearchResult('${r.weekStart}')">
+                        <div class="flex justify-between items-center mb-2">
+                            <div class="font-black text-gray-900 text-sm md:text-base">${dateStr}</div>
+                            <span class="px-2 py-1 rounded-full text-xs font-bold ${statusInfo.color}">${statusInfo.name}</span>
+                        </div>
+                        <div class="text-xs md:text-sm space-y-1 mt-2">
+                            ${r.cell.company ? `<div class="font-semibold">${r.cell.company}</div>` : ''}
+                            ${r.cell.loading ? `<div class="text-blue-600">📍 ${r.cell.loading}</div>` : ''}
+                            ${r.cell.time ? `<div class="text-purple-600">🕐 ${r.cell.time}</div>` : ''}
+                            ${r.cell.bang || r.cell.jip ? `<div class="text-green-600">🚛 ${[r.cell.bang, r.cell.jip].filter(Boolean).join(', ')}</div>` : ''}
+                            ${r.cell.author ? `<div class="text-xs text-gray-500 mt-1">작성: ${r.cell.author}</div>` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function goToSearchResult(weekStart) {
+            currentWeekStart = weekStart;
+            document.getElementById('weekPicker').value = getWeekInputValue(new Date(weekStart));
+            loadWeek(currentWeekStart);
+            updateWeekDisplay();
+            closeSearchModal();
+            showPage('view');
+        }
+
+        // ========== 내보내기 ==========
+        function showExportModal() {
+            document.getElementById('exportModal').classList.remove('hidden');
+            document.getElementById('exportModal').classList.add('flex');
+           
+            const today = new Date();
+            const weekAgo = new Date(today);
+            weekAgo.setDate(today.getDate() - 7);
+           
+            document.getElementById('exportStartDate').value = formatDate(weekAgo);
+            document.getElementById('exportEndDate').value = formatDate(today);
+        }
+
+        function closeExportModal() {
+            document.getElementById('exportModal').classList.add('hidden');
+            document.getElementById('exportModal').classList.remove('flex');
+        }
+
+        function exportToCSV() {
+            const startDate = document.getElementById('exportStartDate').value;
+            const endDate = document.getElementById('exportEndDate').value;
+           
+            if (!startDate || !endDate) {
+                alert('내보낼 기간을 선택하세요.');
+                return;
+            }
+
+            const start = new Date(startDate);
+            const end = new Date(endDate);
+            const rows = [['날짜', '요일', '상태', '업체명', '상차지', '시간', '방통차', '집게차', '연락처', '특이사항', '작성자']];
+
+            const req = getStore('readonly').openCursor();
+            req.onsuccess = e => {
+                const cursor = e.target.result;
+                if (cursor) {
+                    const data = cursor.value;
+                    
+                    // 방어 로직
+                    if (!data || !data.rows || !Array.isArray(data.rows)) {
+                        cursor.continue();
+                        return;
+                    }
+                    
+                    const weekStart = new Date(data.weekStart);
+
+                    data.rows.forEach(row => {
+                        if (!Array.isArray(row)) return;
+                        
+                        row.forEach((cell, colIdx) => {
+                            if (!cell) return;
+                            
+                            const cellDate = new Date(weekStart);
+                            cellDate.setDate(weekStart.getDate() + colIdx);
+
+                            if (cellDate >= start && cellDate <= end && cell.company) {
+                                const statusInfo = STATUS_MAP[cell.status || 'SCHEDULED'];
+                                rows.push([
+                                    formatDate(cellDate),
+                                    DAYS[colIdx],
+                                    statusInfo.name,
+                                    cell.company || '',
+                                    cell.loading || '',
+                                    cell.time || '',
+                                    cell.bang || '',
+                                    cell.jip || '',
+                                    cell.contact || '',
+                                    cell.notes || '',
+                                    cell.author || ''
+                                ]);
+                            }
+                        });
+                    });
+                    cursor.continue();
+                } else {
+                    const csv = rows.map(r => r.map(c => `"${c}"`).join(',')).join('\n');
+                    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = `배차현황_${startDate}_${endDate}.csv`;
+                    link.click();
+                    URL.revokeObjectURL(url);
+                    closeExportModal();
+                    showToast('✅ CSV 내보내기 완료!');
+                }
+            };
+            
+            req.onerror = e => {
+                logError('Error', 'CSV 내보내기 실패', e.target.error);
+                showToast('CSV 내보내기 중 오류 발생');
+            };
+        }
+
+        function exportToExcel() {
+            const startDate = document.getElementById('exportStartDate').value;
+            const endDate = document.getElementById('exportEndDate').value;
+           
+            if (!startDate || !endDate) {
+                alert('내보낼 기간을 선택하세요.');
+                return;
+            }
+
+            const start = new Date(startDate);
+            const end = new Date(endDate);
+            const dataForExcel = [];
+
+            const req = getStore('readonly').openCursor();
+            req.onsuccess = e => {
+                const cursor = e.target.result;
+                if (cursor) {
+                    const data = cursor.value;
+                    
+                    // 방어 로직
+                    if (!data || !data.rows || !Array.isArray(data.rows)) {
+                        cursor.continue();
+                        return;
+                    }
+                    
+                    const weekStart = new Date(data.weekStart);
+
+                    data.rows.forEach(row => {
+                        if (!Array.isArray(row)) return;
+                        
+                        row.forEach((cell, colIdx) => {
+                            if (!cell) return;
+                            
+                            const cellDate = new Date(weekStart);
+                            cellDate.setDate(weekStart.getDate() + colIdx);
+
+                            if (cellDate >= start && cellDate <= end && cell.company) {
+                                const statusInfo = STATUS_MAP[cell.status || 'SCHEDULED'];
+                                dataForExcel.push({
+                                    날짜: formatDate(cellDate),
+                                    요일: DAYS[colIdx],
+                                    상태: statusInfo.name,
+                                    업체명: cell.company || '',
+                                    상차지: cell.loading || '',
+                                    시간: cell.time || '',
+                                    방통차: cell.bang || '',
+                                    집게차: cell.jip || '',
+                                    연락처: cell.contact || '',
+                                    특이사항: cell.notes || '',
+                                    작성자: cell.author || ''
+                                });
+                            }
+                        });
+                    });
+                    cursor.continue();
+                } else {
+                    if (dataForExcel.length === 0) {
+                        showToast('내보낼 데이터가 없습니다');
+                        closeExportModal();
+                        return;
+                    }
+                    
+                    const ws = XLSX.utils.json_to_sheet(dataForExcel);
+                    const wb = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(wb, ws, '배차현황');
+                    XLSX.writeFile(wb, `배차현황_${startDate}_${endDate}.xlsx`);
+                    closeExportModal();
+                    showToast('✅ Excel 내보내기 완료!');
+                }
+            };
+            
+            req.onerror = e => {
+                logError('Error', 'Excel 내보내기 실패', e.target.error);
+                showToast('Excel 내보내기 중 오류 발생');
+            };
+        }
+
+        // ========== 차량 설정 ==========
+        function showVehicleModal() {
+            const bangCount = localStorage.getItem('bangCount') || '5';
+            const jipCount = localStorage.getItem('jipCount') || '3';
+           
+            document.getElementById('bangCountInput').value = bangCount;
+            document.getElementById('jipCountInput').value = jipCount;
+           
+            document.getElementById('vehicleModal').classList.remove('hidden');
+            document.getElementById('vehicleModal').classList.add('flex');
+        }
+
+        function closeVehicleModal() {
+            document.getElementById('vehicleModal').classList.add('hidden');
+            document.getElementById('vehicleModal').classList.remove('flex');
+        }
+
+        function saveVehicleCount() {
+            const bangCount = parseInt(document.getElementById('bangCountInput').value);
+            const jipCount = parseInt(document.getElementById('jipCountInput').value);
+           
+            if (bangCount < 1 || bangCount > 20) {
+                alert('방통차는 1-20대 사이로 입력하세요.');
+                return;
+            }
+           
+            if (jipCount < 1 || jipCount > 10) {
+                alert('집게차는 1-10대 사이로 입력하세요.');
+                return;
+            }
+
+            localStorage.setItem('bangCount', bangCount);
+            localStorage.setItem('jipCount', jipCount);
+
+            const bangSelect = document.getElementById('bangSelect');
+            const jipSelect = document.getElementById('jipSelect');
+            if (bangSelect && jipSelect) {
+                bangSelect.innerHTML = '<option value="">선택안함</option>' +
+                    Array.from({length: bangCount}, (_, i) => `<option value="방${i+1}">방${i+1}</option>`).join('');
+                jipSelect.innerHTML = '<option value="">선택안함</option>' +
+                    Array.from({length: jipCount}, (_, i) => `<option value="집${i+1}">집${i+1}</option>`).join('');
+            }
+
+            closeVehicleModal();
+            showToast(`차량 설정 저장됨: 방통차 ${bangCount}대, 집게차 ${jipCount}대`);
+        }
+
+        // ========== 토스트 알림 ==========
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = 'toast';
+            toast.classList.remove('hidden');
+
+            setTimeout(() => {
+                toast.classList.add('hidden');
+            }, 3000);
+        }
+
+        // ========== 이벤트 리스너 초기화 ==========
+        document.addEventListener('DOMContentLoaded', function() {
+            // 전역 에러 핸들러
+            window.addEventListener('error', function(e) {
+                logError('Error', e.message, `${e.filename}:${e.lineno}`);
+            });
+            
+            window.addEventListener('unhandledrejection', function(e) {
+                logError('Error', 'Unhandled Promise Rejection', e.reason);
+            });
+            
+            // 모달 외부 클릭 시 닫기
+            document.querySelectorAll('.modal-backdrop').forEach(modal => {
+                modal.addEventListener('click', function(e) {
+                    if (e.target === this) {
+                        const modalId = this.id;
+                        if (modalId === 'pivotModal') closePivotModal();
+                        else if (modalId === 'writerModal') closeWriterModal();
+                        else if (modalId === 'searchModal') closeSearchModal();
+                        else if (modalId === 'exportModal') closeExportModal();
+                        else if (modalId === 'vehicleModal') closeVehicleModal();
+                    }
+                });
+            });
+
+            // ESC 키로 모달 닫기
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                    closePivotModal();
+                    closeWriterModal();
+                    closeSearchModal();
+                    closeExportModal();
+                    closeVehicleModal();
+                    closeDrawer();
+                    closeFocusView();
+                }
+            });
+
+            // 피벗 모달 내 날짜 변경 시 자동으로 요일 계산
+            const pivotDateInput = document.getElementById('pivotDate');
+            if (pivotDateInput) {
+                pivotDateInput.addEventListener('change', function() {
+                    const newDate = this.value;
+                    if (newDate) {
+                        const selectedDate = new Date(newDate);
+                        const dayOfWeek = selectedDate.getDay();
+                        const weekStart = getWeekStart(selectedDate);
+                        currentCol = dayOfWeek;
+                        currentWeekStart = formatDate(weekStart);
+                        document.getElementById('weekPicker').value = getWeekInputValue(weekStart);
+                        updateWeekDisplay();
+                        updatePivotPreview();
+                    }
+                });
+            }
+
+            // 모바일 터치 최적화
+            if ('ontouchstart' in window) {
+                document.querySelectorAll('.cell-preview').forEach(cell => {
+                    cell.addEventListener('touchstart', function() {
+                        this.style.transform = 'translateY(-1px)';
+                    });
+                    cell.addEventListener('touchend', function() {
+                        this.style.transform = '';
+                    });
+                });
+            }
+
+            // 스크롤 이벤트 (개선된 헤더 반응)
+            window.addEventListener('scroll', function() {
+                if (window.innerWidth <= 768) {
+                    if (!scrollTicking) {
+                        window.requestAnimationFrame(() => {
+                            handleHeaderScroll();
+                        });
+                        scrollTicking = true;
+                    }
+                }
+            }, { passive: true });
+        });
+
+        // 서비스 워커 등록 (PWA 지원)
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js').catch(() => {});
+            });
+        }
+
+        // 페이지 가시성 변경 시 데이터 새로고침
+        document.addEventListener('visibilitychange', function() {
+            if (!document.hidden && db) {
+                loadWeek(currentWeekStart);
+            }
+        });
+    </script>
+</body>
+</html>
